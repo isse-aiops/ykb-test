@@ -1,0 +1,24 @@
+# *此文件与main.py文件同级*
+# 驱动与本机安装的浏览器 版本必须一致。驱动下载地址：https://www.selenium.dev/zh-cn/documentation/getting_started/installing_browser_drivers/#%E5%BF%AB%E9%80%9F%E5%8F%82%E8%80%83
+# 使用的浏览器和驱动文件路径(这里最好绝对路径
+
+# Browser: 
+ #   type: Chrome
+ #   web_driver_path: 'C:\Users\XD\Desktop\chromedriver-96.0.4664.45-win.exe'
+    
+Browser:
+    type: Edge
+    web_driver_path: '..\driver\msedgedriver-96.0.1054.29-stable.exe'  # edge浏览器版本是96.0.1054.29-stable
+    
+
+
+# 测试对象
+
+Host: https://zwykb.cq.gov.cn
+
+Webs:
+    - /grbs
+    - /hcp
+    
+    
+# 转向配置式通用测试方法https://github.com/stingbo/pystest
