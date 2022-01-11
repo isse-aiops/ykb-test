@@ -1,5 +1,5 @@
 # 仅做一个post请求的数据收集无特殊处理。 分析字段时发现：有些服务pcLink需要人脸识别，用mainkey可以访问；有些服务用mainkey服务会显示没有Formid，用pclink发现是另外有个form；
-# 生成csv用数据库ui直接导入数据库比sql建表插入快多了
+# 可以生成csv用数据库ui直接导入数据库
 
 
 import time
