@@ -29,7 +29,7 @@ class TestYKB:
         self.performance_count = {'COUNT_ID':[], 'STATUS':[], 'NUMBER': [], 'RECORD_TIME': []} 
 
 
-    def setup(self, chromedriver_path='./chromedriver'):
+    def setup(self, chromedriver_path='./driver/chromedriver-90'):
         '''该函数配置webdriver的启动属性'''
         self.opt = webdriver.ChromeOptions() # 可通过DesirdCapablilitites对象实例化options，在通过其实例化driver
         self.opt.add_argument('--headless')
