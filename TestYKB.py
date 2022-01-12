@@ -200,11 +200,11 @@ class TestYKB:
             CRT_TIME = (df_one['Timestamp'].values[0])
             # print(type(CRT_TIME),type(LastTime)) #找不到法子把这个ns的datetime64转化datetime，直接时间戳转
             self.dataframe['CRT_TIME'].append(CRT_TIME)
-            # 仅此两个计算属性
+            # 仅此两个计算属性（逻辑，当前测试状态改变改变时间定为现在，状态持续时间也不从上一状态计而是变为0
             self.dataframe['CHANGE_TIME'].append(LastTime if data[1] == df_one['Status'].values[0] else CRT_TIME)
             delta = CRT_TIME.astype(datetime)/1000000 - LastTime.timestamp()*1000 #注意单位化为ms
             # print(delta,CRT_TIME.astype(datetime)/1000000,LastTime.timestamp()*1000)
-            self.dataframe['LAST_DURATION'].append((delta + data[4]) if data[1] == df_one['Status'].values[0] else delta)
+            self.dataframe['LAST_DURATION'].append((delta + data[4]) if data[1] == df_one['Status'].values[0] else 0)
         conn.close()
 
     def save2mysql(self):
