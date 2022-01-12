@@ -48,55 +48,6 @@ class TestYKB:
     def teardown(self):
         self.driver.quit()
 
-    def createTableBySql(self,mysqlurl="127.0.0.1/3306/root/123456/performancedb"):
-        '''此函数用来创建表,需创建performancedb数据库（ 因为使用dataframe存也弃用了'''
-        import pymysql
-        mysqlurl = mysqlurl.split("/")
-        conn = pymysql.connect(host=mysqlurl[0],port=int(mysqlurl[1]),user=mysqlurl[2],passwd=mysqlurl[3],db=mysqlurl[4],charset='utf8')
-        cursor = conn.cursor()
-        tb1_sql = '''CREATE TABLE IF NOT EXISTS TB_PERFORMANCE(
-                   redirctTime int(11) DEFAULT NULL ,
-                   dnsTime int(11) DEFAULT NULL ,
-                   ttfbTime int(11) DEFAULT NULL ,
-                   unloadTime int(11) DEFAULT NULL ,
-                   appcacheTime int(11) DEFAULT NULL ,
-                   domReadyTime int(11) DEFAULT NULL ,
-                   reqTime int(11) DEFAULT NULL ,
-                   tcpTime int(11) DEFAULT NULL ,   
-                   blankTime int(11) DEFAULT NULL , 
-                   analysisTime int(11) DEFAULT NULL ,
-                   allTime int(11) DEFAULT NULL,
-                   service_url longtext DEFAULT NULL,
-                   TestingTime datetime DEFAULT CURRENT_TIMESTAMP, 
-                   updateTime datetime DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-                   id INT NOT NULL AUTO_INCREMENT,
-                   PRIMARY KEY(id)) ''' #还可以加datatime字段
-        
-        
-        cursor.execute(tb1_sql) #哪个没有建哪个
-        conn.commit()
-        conn.close()
-        cursor.close()
-
-    def performance2mysql_sql(self,url="",mysqlurl="127.0.0.1/3306/root/123456/performancedb/TB_PERFORMANCE"):
-        """ 暂时弃用每次获取timing存mysql数据（是否代价高未知 """
-        def generate_insert_sql(tbname,dicts):
-            cols = ",".join('{}'.format(k) for k in dicts.keys())
-            val_cols = ','.join('{}'.format(k) for k in dicts.values())
-            sql = """INSERT INTO %s(%s) VALUES(%s)""" % (tbname, cols, val_cols)
-            return sql
-        times = self.get_performance(url)
-        times['service_url'] = "'"+url+"'" # 需要嵌套否则后面生成sql无引号
-        mysqlurl = mysqlurl.split("/")
-        conn = pymysql.connect(host=mysqlurl[0],port=int(mysqlurl[1]),user=mysqlurl[2],passwd=mysqlurl[3],db=mysqlurl[4])
-        cursor = conn.cursor()
-        sql = (generate_insert_sql(mysqlurl[5],times))
-        cursor.execute(sql)
-        conn.commit()
-        conn.close()
-        cursor.close()
-        # 可插入多条
-        
     def get_performance(self,id="00065e9b-407e-49a2-933c-eb82de004c04"):
         """获取页面标题和部分性能数据 -访问url用js获取timing具体数据"""
         try:
@@ -135,6 +86,7 @@ class TestYKB:
             else :
                 self.times['Status'].append(5)
         except:
+            print("!!!!!!返回报错!!!!!!!!")
             self.times['redirctTime'].append(0)
             self.times['dnsTime'].append(0)
             self.times['ttfbTime'].append(0)
