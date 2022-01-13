@@ -7,27 +7,25 @@ from time import sleep
 import time, json
 from datetime import datetime
 import logging
-from numpy.lib.function_base import select
 logging.basicConfig(level=logging.ERROR)
 
 import pandas as pd
 import numpy as np
-from pandas.core.indexes.base import Index
 import pymysql
-from selenium.webdriver.chrome.webdriver import WebDriver
 from sqlalchemy import create_engine
 from selenium import webdriver
 from selenium.webdriver.support.ui import WebDriverWait
-import concurrent.futures # 由于是网络io密集多线程多进程都能用，问题是用多线程共享TestYKB是否更快，可以对比两个方法（并发数用默认值）
-
+import concurrent.futures 
 class TestYKB:
 
-    def __init__(self) -> None:
+    def __init__(self,serviceLists,testTime=datetime.now()) -> None:
+        self.TestYKB_TIME = testTime # 使用测试开启的时间而非添加数据当前的时间
+        self.serviceLists = serviceLists
+
         # 也可直接用narr或dataframe保存
         self.times = {'serviceId': [], 'Status': [], 'redirctTime': [], 'dnsTime': [], 'ttfbTime': [], 'appcacheTime': [], 'unloadTime': [], 'tcpTime': [], 'reqTime': [], 'analysisTime': [], 'blankTime': [], 'domReadyTime': [], 'allTime': [], 'Timestamp': []}
         # performance-status表结构
         self.dataframe = {'SERVICE_ID': [],'SERVICE_NAME':[],'CURRENT_RESTIME':[],'CURRENT_STATUS':[],'LAST_RESTIME':[],'LAST_STATUS':[],'CHANGE_TIME':[],'LAST_DURATION':[],'CRT_TIME':[]}
-        
 
 
     def setup(self, chromedriver_path='./driver/chromedriver-90'):
@@ -48,11 +46,61 @@ class TestYKB:
     def teardown(self):
         self.driver.quit()
 
+    def createTableBySql(self,mysqlurl="127.0.0.1/3306/root/123456/performancedb"):
+        '''此函数用来创建表,需创建performancedb数据库（ 因为使用dataframe存也弃用了'''
+        import pymysql
+        mysqlurl = mysqlurl.split("/")
+        conn = pymysql.connect(host=mysqlurl[0],port=int(mysqlurl[1]),user=mysqlurl[2],passwd=mysqlurl[3],db=mysqlurl[4],charset='utf8')
+        cursor = conn.cursor()
+        tb1_sql = '''CREATE TABLE IF NOT EXISTS TB_PERFORMANCE(
+                   redirctTime int(11) DEFAULT NULL ,
+                   dnsTime int(11) DEFAULT NULL ,
+                   ttfbTime int(11) DEFAULT NULL ,
+                   unloadTime int(11) DEFAULT NULL ,
+                   appcacheTime int(11) DEFAULT NULL ,
+                   domReadyTime int(11) DEFAULT NULL ,
+                   reqTime int(11) DEFAULT NULL ,
+                   tcpTime int(11) DEFAULT NULL ,   
+                   blankTime int(11) DEFAULT NULL , 
+                   analysisTime int(11) DEFAULT NULL ,
+                   allTime int(11) DEFAULT NULL,
+                   service_url longtext DEFAULT NULL,
+                   TestingTime datetime DEFAULT CURRENT_TIMESTAMP, 
+                   updateTime datetime DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                   id INT NOT NULL AUTO_INCREMENT,
+                   PRIMARY KEY(id)) ''' #还可以加datatime字段
+        
+        
+        cursor.execute(tb1_sql) #哪个没有建哪个
+        conn.commit()
+        conn.close()
+        cursor.close()
+
+    def performance2mysql_sql(self,url="",mysqlurl="127.0.0.1/3306/root/123456/performancedb/TB_PERFORMANCE"):
+        """ 暂时弃用每次获取timing存mysql数据（是否代价高未知 """
+        def generate_insert_sql(tbname,dicts):
+            cols = ",".join('{}'.format(k) for k in dicts.keys())
+            val_cols = ','.join('{}'.format(k) for k in dicts.values())
+            sql = """INSERT INTO %s(%s) VALUES(%s)""" % (tbname, cols, val_cols)
+            return sql
+        times = self.get_performance(url)
+        times['service_url'] = "'"+url+"'" # 需要嵌套否则后面生成sql无引号
+        mysqlurl = mysqlurl.split("/")
+        conn = pymysql.connect(host=mysqlurl[0],port=int(mysqlurl[1]),user=mysqlurl[2],passwd=mysqlurl[3],db=mysqlurl[4])
+        cursor = conn.cursor()
+        sql = (generate_insert_sql(mysqlurl[5],times))
+        cursor.execute(sql)
+        conn.commit()
+        conn.close()
+        cursor.close()
+        # 可插入多条
+        
     def get_performance(self,id="00065e9b-407e-49a2-933c-eb82de004c04"):
         """获取页面标题和部分性能数据 -访问url用js获取timing具体数据"""
         try:
             self.driver.get("https://zwykb.cq.gov.cn/ggbf_search/ljbl/?mainKey="+id)
-            print(self.driver.execute_script("return document.title;"),"--（`认证中心用户登录`说明cookie失效）")
+            if id =='00065e9b-407e-49a2-933c-eb82de004c04': #只显示一次
+                print(self.driver.execute_script("return document.title;"),"--（`认证中心用户登录`说明cookie失效）")
 
             # 显式等待加载完毕，直接sleep也可,否则是load状态就获取timing了
             WebDriverWait(self.driver, 10).until(lambda driver: driver.execute_script('return document.readyState') == 'complete')
@@ -98,10 +146,10 @@ class TestYKB:
             self.times['blankTime'].append(0)
             self.times['domReadyTime'].append(0)
             self.times['allTime'].append(0)
-            self.times['Status'].append(5)
+            self.times['Status'].append(6)
             
         self.times['serviceId'].append(id)
-        self.times['Timestamp'].append(datetime.now())
+        self.times['Timestamp'].append(self.TestYKB_TIME)
         logging.info(self.times)
 
 
@@ -133,7 +181,7 @@ class TestYKB:
             self.dataframe['SERVICE_ID'].append(serviceId)
             cursor.execute("SELECT service_name FROM TB_SERVICES WHERE id='%s'"%serviceId)
             self.dataframe['SERVICE_NAME'].append(cursor.fetchone()[0])  # 初始化表没有信息，df也没有只能查services（或join
-            self.dataframe['LAST_STATUS'].append(df_one['Status'].values.tolist()[0]) # 下面都直接将上次等同当前状态
+            self.dataframe['LAST_STATUS'].append(df_one['Status'].values.tolist()[0]) # 数据表为空，初始化方式（起初设上一状态为0，现认为上一状态和当前一样）
             self.dataframe['LAST_RESTIME'].append(df_one['allTime'].values.tolist()[0])
             self.dataframe['CURRENT_RESTIME'].append(df_one['allTime'].values.tolist()[0])
             self.dataframe['CURRENT_STATUS'].append(df_one['Status'].values.tolist()[0])
@@ -160,66 +208,135 @@ class TestYKB:
         conn.close()
 
     def save2mysql(self):
+        for id in self.serviceLists:
+            self.get_performance(id[0])
         """ 从dataframe保存至mysql(加上后置数据处理) """ 
         engine = create_engine("mysql+pymysql://root:123456@127.0.0.1:3306/performancedb?charset=utf8")
         df = pd.DataFrame(self.times) #dataframe需的字典是包含index信息的 所以times值是列表
         logging.info(df)
         df.to_sql('TB_PERFORMANCE',con=engine,if_exists='append', index=False) #是否用索引
         # 存入status计数（比较简单就不单独作为类变量
-        dataframe_count = {'SATUS':df['Status'].value_counts().index,'NUMBER':df['Status'].value_counts().values,'RECORD_TIME':[datetime.now()]*len(df['Status'].value_counts())}
-        pd.DataFrame(dataframe_count).to_sql('TB_PERFORMANCE_COUNT',con=engine,if_exists='append', index=False )  
+        dataframe_count = {'STATUS':df['Status'].value_counts().index.tolist(),'NUMBER':df['Status'].value_counts().values.tolist(),'RECORD_TIME':[self.TestYKB_TIME]*len(df['Status'].value_counts())}
+        # 给各个状态填充默认值
+        for i in [1,2,3,4,5,6]:
+            if i not in df['Status'].value_counts().index:
+                dataframe_count['STATUS'].append(i)
+                dataframe_count['NUMBER'].append(0)
+                dataframe_count['RECORD_TIME'].append(self.TestYKB_TIME)
+        pd.DataFrame(dataframe_count).to_sql('TB_PERFORMANCE_COUNT',con=engine,if_exists='append', index=False)
         # 存入服务状态变迁统计(流程：根据id列表查上次状态表和这次times对比)
-        for id in self.getMainKeyList():
+        for id in self.serviceLists:
             self.generate_performance_status(pd.DataFrame(self.times)[df['serviceId']==id[0]],id[0]) #传入times的df类型比times好操作点
+        
         # print((self.dataframe))
-        pd.DataFrame(self.dataframe).to_sql('TB_SERVICE_STATUS',con=engine,if_exists='append', index=False )
+        pd.DataFrame(self.dataframe).to_sql('TB_SERVICE_STATUS',con=engine,if_exists='append', index=False)
 
+    
           
 
-    def getMainKeyList(self): # 是否作为实例函数耦合
-        conn = pymysql.connect(host='127.0.0.1', port=3306, user='root' ,passwd='123456',db='performancedb')
-        sqlGetMainKey = 'select id from TB_SERVICES'
-        df = pd.read_sql(sqlGetMainKey, con=conn)
-        key_list=np.array(df).tolist()
-        return key_list
+def getMainKeyList(): # 是否作为实例函数耦合
+    conn = pymysql.connect(host='127.0.0.1', port=3306, user='root' ,passwd='123456',db='performancedb')
+    sqlGetMainKey = 'select id from TB_SERVICES'
+    df = pd.read_sql(sqlGetMainKey, con=conn)
+    key_list=np.array(df).tolist()
+    return key_list
 
 
-if __name__ == '__main__':
 
-
+def order_job():
 
     testykb = TestYKB()
-
-
-
     testykb.setup()
-    testykb.addCookie("inspurb572c34af53344cca726e80e4a393e97")
+    testykb.addCookie("dinspurc4965d80ffa34ce088a01b5f0a71b3d7")
     # testykb只实现访问一个请求保存到变量，访问多个请求多调用几次getperformance再save一次。并发只需要在这里定义个process
 
     def process(serviceId):
         testykb.get_performance(serviceId)
     start_time_order = time.time()  
-    testykb.times = {'serviceId': [], 'Status': [], 'redirctTime': [], 'dnsTime': [], 'ttfbTime': [], 'appcacheTime': [], 'unloadTime': [], 'tcpTime': [], 'reqTime': [], 'analysisTime': [], 'blankTime': [], 'domReadyTime': [], 'allTime': [], 'Timestamp': []}
-    [process(id[0]) for id in testykb.getMainKeyList()]
-    print('此次测试的已请求数量:',len(testykb.times['serviceId'])) #应该是852条全跑完了
+    [process(id[0]) for id in testykb.getMainKeyList()[:6]]
     print ("Order execution in " + str(time.time() - start_time_order), "seconds")
+    print('此次测试的已请求数量:',len(testykb.times['serviceId'])) #应该是852条全跑完了
+    save_time = time.time()
     testykb.save2mysql()
-    # 使用多线程，测试得知线程池没快多少。有时300秒有600秒有时4千，遇到了实名认证拦截。PS：list线程不安全？数据全一样https://cloud.tencent.com/developer/article/1725317
-    # def process_demo(i):
-    #     print(i)
-    # with concurrent.futures.ThreadPoolExecutor() as executor:
-    #     futures = [executor.submit(process_demo,item) for item in [1,2,3,4,5]]
-    #     for future in concurrent.futures.as_completed(futures):
-    #         print(future.result())
-
-    # start_time_thread = time.time()
-    # with concurrent.futures.ThreadPoolExecutor() as executor:
-    #     futures = [executor.submit(process,item[0]) for item in testykb.getMainKeyList()[:50]]
-    #     # concurrent.futures.as_completed(futures) # 应该不需要这个就complete了
-    # print ("Thread pool execution in " + str(time.time() - start_time_thread), "seconds")
-    # print(len(testykb.times['serviceId'])) #应该是852条全跑完了
-    # testykb.save2mysql('test_concurrent')
-
-
-    # testykb.performance2dataframe("f4943a42-961d-47db-a86c-b1ada64370ab")
+    print("savetime",time.time()-save_time)
     testykb.teardown()
+
+def thread_job():
+    # TODO 由于是网络io密集多线程多进程都能用（实际上多线程没有变快），多进程不易共享变量，可以用24个YKB对象分配852/24个不同url
+    testykb = TestYKB()
+    testykb.setup()
+    testykb.addCookie("ddinspurb572c34af53344cca726e80e4a393e97")
+
+    def process(serviceId):
+        testykb.get_performance(serviceId)
+        
+    # 使用多线程，测试得知线程池没快多少。有时300秒有600秒有时4千，遇到了实名认证拦截。PS：list线程不安全？数据全一样https://cloud.tencent.com/developer/article/1725317
+    start_time_thread = time.time()
+    with concurrent.futures.ThreadPoolExecutor() as executor:
+        futures = [executor.submit(process,item[0]) for item in testykb.getMainKeyList()]
+        # concurrent.futures.as_completed(futures) # 应该不需要这个就complete了
+    print ("Thread pool execution in " + str(time.time() - start_time_thread), "seconds")
+    print('此次测试的已请求数量:',len(testykb.times['serviceId'])) #应该是852条全跑完了
+    # testykb.save2mysql()
+    testykb.teardown()
+
+
+def process_job():
+#17.14修改完成：遍历一轮且都相同测试时间。
+    def process(servies,datetime):
+        testykb = TestYKB(servies,datetime)
+        testykb.setup()
+        testykb.addCookie("ddinspurb572c34af53344cca726e80e4a393e97")
+        testykb.save2mysql()
+        print('此次测试的已请求数量:',len(testykb.times['serviceId'])) #应该是852条全跑完了
+        testykb.teardown()
+
+    start_time_process = time.time()
+    record_time = datetime.now()
+    with concurrent.futures.ThreadPoolExecutor() as executor:
+        futures = [executor.submit(process,getMainKeyList()[x*36:x*36+36],record_time) for x in range(24)]
+        # concurrent.futures.as_completed(futures) # 应该不需要这个就complete了
+    print ("Thread pool execution in " + str(time.time() - start_time_process), "seconds")
+    
+    # testykb.save2mysql()
+
+
+
+def testjob():
+    # 多线程为什么没有效果呢，仅个get也是。process包含Test对象创建会报错。
+    testykb2 = TestYKB()
+    testykb2.setup()
+    def process():
+        '''因为上面的getperformance没有效果，就一个请求看多线程对比，结果仍没有提升是说明非网络io任务'''
+        testykb2.driver.get("http://www.tieba.com")
+        WebDriverWait(testykb2.driver, 10).until(lambda driver: driver.execute_script('return document.readyState') == 'complete')
+
+    start_time_thread = time.time()
+    with concurrent.futures.ThreadPoolExecutor() as executor:
+        futures = [executor.submit(process()) for item in range(200)]
+        # concurrent.futures.as_completed(futures) # 应该不需要这个就complete了
+    print ("Thread pool execution in " + str(time.time() - start_time_thread), "seconds")
+    start_time_order = time.time()  
+    [process() for id in range(200)]
+    print ("Order execution in " + str(time.time() - start_time_order), "seconds")
+    testykb2.teardown()
+
+
+    
+if __name__ == '__main__':
+    # testjob()
+    # order_job()
+    # process_job()
+    # 定时执行order_job，并发开启任务（因为单次任务没有并发有时超过十分钟会阻塞下一次任务，这里并发任务可保证每次任务正常开启）
+    # import threading
+    import schedule
+
+    # def run_threaded(job_func):
+    #     job_thread = threading.Thread(target=job_func)
+    #     job_thread.start()
+    # # schedule.every(5).minutes.do(run_threaded,order_job)
+    schedule.every(5).minutes.do(process_job)
+    
+    while True:
+        schedule.run_pending()   # 运行所有可以运行的任务
+        time.sleep(1)
