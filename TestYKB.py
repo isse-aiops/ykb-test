@@ -242,51 +242,13 @@ def getMainKeyList(): # 是否作为实例函数耦合
     return key_list
 
 
-
-def order_job():
-
-    testykb = TestYKB()
-    testykb.setup()
-    testykb.addCookie("dinspurc4965d80ffa34ce088a01b5f0a71b3d7")
-    # testykb只实现访问一个请求保存到变量，访问多个请求多调用几次getperformance再save一次。并发只需要在这里定义个process
-
-    def process(serviceId):
-        testykb.get_performance(serviceId)
-    start_time_order = time.time()  
-    [process(id[0]) for id in testykb.getMainKeyList()[:6]]
-    print ("Order execution in " + str(time.time() - start_time_order), "seconds")
-    print('此次测试的已请求数量:',len(testykb.times['serviceId'])) #应该是852条全跑完了
-    save_time = time.time()
-    testykb.save2mysql()
-    print("savetime",time.time()-save_time)
-    testykb.teardown()
-
-def thread_job():
-    # TODO 由于是网络io密集多线程多进程都能用（实际上多线程没有变快），多进程不易共享变量，可以用24个YKB对象分配852/24个不同url
-    testykb = TestYKB()
-    testykb.setup()
-    testykb.addCookie("ddinspurb572c34af53344cca726e80e4a393e97")
-
-    def process(serviceId):
-        testykb.get_performance(serviceId)
-        
-    # 使用多线程，测试得知线程池没快多少。有时300秒有600秒有时4千，遇到了实名认证拦截。PS：list线程不安全？数据全一样https://cloud.tencent.com/developer/article/1725317
-    start_time_thread = time.time()
-    with concurrent.futures.ThreadPoolExecutor() as executor:
-        futures = [executor.submit(process,item[0]) for item in testykb.getMainKeyList()]
-        # concurrent.futures.as_completed(futures) # 应该不需要这个就complete了
-    print ("Thread pool execution in " + str(time.time() - start_time_thread), "seconds")
-    print('此次测试的已请求数量:',len(testykb.times['serviceId'])) #应该是852条全跑完了
-    # testykb.save2mysql()
-    testykb.teardown()
-
-
-def process_job():
+def process_job(cook):
 #17.14修改完成：遍历一轮且都相同测试时间。
+    print((time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())))
     def process(servies,datetime):
         testykb = TestYKB(servies,datetime)
         testykb.setup()
-        testykb.addCookie("ddinspurb572c34af53344cca726e80e4a393e97")
+        testykb.addCookie(cook)
         testykb.save2mysql()
         print('此次测试的已请求数量:',len(testykb.times['serviceId'])) #应该是852条全跑完了
         testykb.teardown()
@@ -300,43 +262,21 @@ def process_job():
     
     # testykb.save2mysql()
 
-
-
-def testjob():
-    # 多线程为什么没有效果呢，仅个get也是。process包含Test对象创建会报错。
-    testykb2 = TestYKB()
-    testykb2.setup()
-    def process():
-        '''因为上面的getperformance没有效果，就一个请求看多线程对比，结果仍没有提升是说明非网络io任务'''
-        testykb2.driver.get("http://www.tieba.com")
-        WebDriverWait(testykb2.driver, 10).until(lambda driver: driver.execute_script('return document.readyState') == 'complete')
-
-    start_time_thread = time.time()
-    with concurrent.futures.ThreadPoolExecutor() as executor:
-        futures = [executor.submit(process()) for item in range(200)]
-        # concurrent.futures.as_completed(futures) # 应该不需要这个就complete了
-    print ("Thread pool execution in " + str(time.time() - start_time_thread), "seconds")
-    start_time_order = time.time()  
-    [process() for id in range(200)]
-    print ("Order execution in " + str(time.time() - start_time_order), "seconds")
-    testykb2.teardown()
-
-
     
 if __name__ == '__main__':
+    import sys
     # testjob()
     # order_job()
     # process_job()
     # 定时执行order_job，并发开启任务（因为单次任务没有并发有时超过十分钟会阻塞下一次任务，这里并发任务可保证每次任务正常开启）
     # import threading
     import schedule
-
     # def run_threaded(job_func):
     #     job_thread = threading.Thread(target=job_func)
     #     job_thread.start()
     # # schedule.every(5).minutes.do(run_threaded,order_job)
-    schedule.every(5).minutes.do(process_job)
+    schedule.every(5).minutes.do(process_job,sys.argv[1])
     
     while True:
         schedule.run_pending()   # 运行所有可以运行的任务
-        time.sleep(1)
+        #time.sleep(1)
