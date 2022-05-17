@@ -163,14 +163,14 @@ class TestYKB:
         for id in self.serviceLists:
             self.get_performance(id[0])
         """ 从dataframe保存至mysql(加上后置数据处理) """ 
-        engine = create_engine("mysql+pymysql://root:123456@127.0.0.1:3306/performancedb?charset=utf8")
+        engine = create_engine("mysql+pymysql://root:123456@127.0.0.1:3306/performancedb?charset=utf8") #本着所有数据库读写用dataframe对象去做方便数据操作（懒得写sql
         df = pd.DataFrame(self.times) #dataframe需的字典是包含index信息的 所以times值是列表
         logging.info(df)
         df.to_sql('TB_PERFORMANCE',con=engine,if_exists='append', index=False) #是否用索引
         # 存入status计数（比较简单就不单独作为类变量
         dataframe_count = {'STATUS':df['Status'].value_counts().index.tolist(),'NUMBER':df['Status'].value_counts().values.tolist(),'RECORD_TIME':[self.TestYKB_TIME]*len(df['Status'].value_counts())}
         # 给各个状态填充默认值
-        for i in [1,2,3,4,5,6]:
+        for i in [1,2,3,4,5,6,7]:
             if i not in df['Status'].value_counts().index:
                 dataframe_count['STATUS'].append(i)
                 dataframe_count['NUMBER'].append(0)
@@ -178,7 +178,7 @@ class TestYKB:
         pd.DataFrame(dataframe_count).to_sql('TB_PERFORMANCE_COUNT',con=engine,if_exists='append', index=False)
         # 存入服务状态变迁统计(流程：根据id列表查上次状态表和这次times对比)
         for id in self.serviceLists:
-            self.generate_performance_status(pd.DataFrame(self.times)[df['serviceId']==id[0]],id[0]) #传入times的df类型比times好操作点
+            self.generate_performance_status(pd.DataFrame(self.times)[df['serviceId']==id[0]],id[0])
         
         print((self.dataframe))
         pd.DataFrame(self.dataframe).to_sql('TB_SERVICE_STATUS',con=engine,if_exists='append', index=False)
@@ -187,7 +187,7 @@ class TestYKB:
           
 
 def getMainKeyList(): # 是否作为实例函数耦合
-#itemid列表
+#TODO通过读表返回itemid列表 
     return key_list
 
 
@@ -215,28 +215,6 @@ def process_job():
     # testykb.save2mysql()
 
 
-
-def testjob():
-    # 多线程为什么没有效果呢，仅个get也是。process包含Test对象创建会报错。
-    testykb2 = TestYKB()
-    testykb2.setup()
-    def process():
-        '''因为上面的getperformance没有效果，就一个请求看多线程对比，结果仍没有提升是说明非网络io任务'''
-        testykb2.driver.get("http://www.tieba.com")
-        WebDriverWait(testykb2.driver, 10).until(lambda driver: driver.execute_script('return document.readyState') == 'complete')
-
-    start_time_thread = time.time()
-    with concurrent.futures.ThreadPoolExecutor() as executor:
-        futures = [executor.submit(process()) for item in range(200)]
-        # concurrent.futures.as_completed(futures) # 应该不需要这个就complete了
-    print ("Thread pool execution in " + str(time.time() - start_time_thread), "seconds")
-    start_time_order = time.time()  
-    [process() for id in range(200)]
-    print ("Order execution in " + str(time.time() - start_time_order), "seconds")
-    testykb2.teardown()
-
-
-    
 if __name__ == '__main__':
     import sys
     import schedule
