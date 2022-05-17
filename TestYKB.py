@@ -72,7 +72,7 @@ class TestYKB:
             self.times['blankTime'].append((idict['domInteractive'] or idict['domLoading']) - idict['fetchStart'])
             self.times['domReadyTime'].append(idict['domContentLoadedEventEnd'] - idict['fetchStart'])
             self.times['allTime'].append(idict['loadEventEnd']-idict['navigationStart']) #!不应该用上诉各段求和
-            if self.driver.execute_script("return getComputedStyle(document.querySelector(' a.w-cur')).backgroundColor")=='rgb(39, 137, 238)':
+            if self.driver.execute_script("return getComputedStyle(document.querySelector(' a.w-cur')).backgroundColor")!='rgb(39, 137, 238)':
                 self.times['Status'].append(7) #状态设置7不可用
 
             elif idict['loadEventEnd']-idict['navigationStart'] < 1000: 
