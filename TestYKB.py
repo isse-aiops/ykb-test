@@ -2,7 +2,6 @@
 # 安装webdriver见https://www.selenium.dev/zh-cn/documentation/webdriver/getting_started/install_drivers/
 # 如在Linux使用安装Chromium，chromium-browser --version查看版本对应（红帽系列安装epel-release先
 
-# 代码中cookie有时效性需运行前检查（可能数小时）
 from time import sleep
 import time, json
 from datetime import datetime
@@ -37,7 +36,7 @@ class TestYKB:
         # self.driver.implicitly_wait(5) # 隐式等待 https://www.jianshu.com/p/bf27aad96614
     
     def addCookie(self,JSESSIONID='inspurbb332f8993d84dcca368954a0a4127eb'): #
-        """ webdriver保持登录状态（否则无法无法访问办事详情），JSESSIONID字段需访问下面url获取后登录即可 """
+        """ webdriver保持登录状态（否则无法无法访问办事详情） ， JSESSIONID字段需访问下面url获取后登录即可 """
         # 添加cookie的域名需要设置对,先访问
         self.driver.get('https://auth.cq.gov.cn:81/sso/login?utype=0') # 解决domain报错，需要https://www.cnblogs.com/deliaries/p/14121204.html
         self.driver.delete_cookie('JSESSIONID') # 需先删除访问初始化的
@@ -46,71 +45,21 @@ class TestYKB:
     def teardown(self):
         self.driver.quit()
 
-    def createTableBySql(self,mysqlurl="127.0.0.1/3306/root/123456/performancedb"):
-        '''此函数用来创建表,需创建performancedb数据库（ 因为使用dataframe存也弃用了'''
-        import pymysql
-        mysqlurl = mysqlurl.split("/")
-        conn = pymysql.connect(host=mysqlurl[0],port=int(mysqlurl[1]),user=mysqlurl[2],passwd=mysqlurl[3],db=mysqlurl[4],charset='utf8')
-        cursor = conn.cursor()
-        tb1_sql = '''CREATE TABLE IF NOT EXISTS TB_PERFORMANCE(
-                   redirctTime int(11) DEFAULT NULL ,
-                   dnsTime int(11) DEFAULT NULL ,
-                   ttfbTime int(11) DEFAULT NULL ,
-                   unloadTime int(11) DEFAULT NULL ,
-                   appcacheTime int(11) DEFAULT NULL ,
-                   domReadyTime int(11) DEFAULT NULL ,
-                   reqTime int(11) DEFAULT NULL ,
-                   tcpTime int(11) DEFAULT NULL ,   
-                   blankTime int(11) DEFAULT NULL , 
-                   analysisTime int(11) DEFAULT NULL ,
-                   allTime int(11) DEFAULT NULL,
-                   service_url longtext DEFAULT NULL,
-                   TestingTime datetime DEFAULT CURRENT_TIMESTAMP, 
-                   updateTime datetime DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-                   id INT NOT NULL AUTO_INCREMENT,
-                   PRIMARY KEY(id)) ''' #还可以加datatime字段
-        
-        
-        cursor.execute(tb1_sql) #哪个没有建哪个
-        conn.commit()
-        conn.close()
-        cursor.close()
 
-    def performance2mysql_sql(self,url="",mysqlurl="127.0.0.1/3306/root/123456/performancedb/TB_PERFORMANCE"):
-        """ 暂时弃用每次获取timing存mysql数据（是否代价高未知 """
-        def generate_insert_sql(tbname,dicts):
-            cols = ",".join('{}'.format(k) for k in dicts.keys())
-            val_cols = ','.join('{}'.format(k) for k in dicts.values())
-            sql = """INSERT INTO %s(%s) VALUES(%s)""" % (tbname, cols, val_cols)
-            return sql
-        times = self.get_performance(url)
-        times['service_url'] = "'"+url+"'" # 需要嵌套否则后面生成sql无引号
-        mysqlurl = mysqlurl.split("/")
-        conn = pymysql.connect(host=mysqlurl[0],port=int(mysqlurl[1]),user=mysqlurl[2],passwd=mysqlurl[3],db=mysqlurl[4])
-        cursor = conn.cursor()
-        sql = (generate_insert_sql(mysqlurl[5],times))
-        cursor.execute(sql)
-        conn.commit()
-        conn.close()
-        cursor.close()
-        # 可插入多条
         
     def get_performance(self,id="00065e9b-407e-49a2-933c-eb82de004c04"):
         """获取页面标题和部分性能数据 -访问url用js获取timing具体数据"""
         try:
-            self.driver.get("https://zwykb.cq.gov.cn/ggbf_search/ljbl/?mainKey="+id)
-            if id =='00065e9b-407e-49a2-933c-eb82de004c04': #只显示一次
-                print(self.driver.execute_script("return document.title;"),"--（`认证中心用户登录`说明cookie失效）")
+            self.driver.get("https://zwykb.cq.gov.cn/grbs/bszn/?itemid="+id)
+
 
             # 显式等待加载完毕，直接sleep也可,否则是load状态就获取timing了
             WebDriverWait(self.driver, 10).until(lambda driver: driver.execute_script('return document.readyState') == 'complete')
             logging.info(self.driver.execute_script('return document.readyState'))
             js = self.driver.execute_script("return JSON.stringify(performance.timing)")
             idict = json.loads(js) # 字典类型
-            logging.info(idict) #21个
-            logging.info(len(list(idict.values())))
-            #需要用map而非print(list(idict.values())[:]-idict['navigationStart'])
-            #print(list(map(lambda x: x-idict['navigationStart'],list(idict.values()))))
+
+
             # 计算意义 https://zhuanlan.zhihu.com/p/82981365
             self.times['redirctTime'].append(idict['redirectEnd'] - idict['redirectStart'])
             self.times['dnsTime'].append(idict['domainLookupEnd'] - idict['domainLookupStart'])
@@ -123,7 +72,10 @@ class TestYKB:
             self.times['blankTime'].append((idict['domInteractive'] or idict['domLoading']) - idict['fetchStart'])
             self.times['domReadyTime'].append(idict['domContentLoadedEventEnd'] - idict['fetchStart'])
             self.times['allTime'].append(idict['loadEventEnd']-idict['navigationStart']) #!不应该用上诉各段求和
-            if idict['loadEventEnd']-idict['navigationStart'] < 1000: 
+            if self.driver.execute_script("return getComputedStyle(document.querySelector(' a.w-cur')).backgroundColor")=='rgb(39, 137, 238)':
+                self.times['Status'].append(7) #状态设置7不可用
+
+            elif idict['loadEventEnd']-idict['navigationStart'] < 1000: 
                 self.times['Status'].append(1)
             elif idict['loadEventEnd']-idict['navigationStart'] < 2000:
                 self.times['Status'].append(2)
@@ -134,7 +86,7 @@ class TestYKB:
             else :
                 self.times['Status'].append(5)
         except:
-            print("!!!!!!返回报错!!!!!!!!")
+            print("!!!!!!返回报错!!!!!!!!") #状态设置为6访问异常
             self.times['redirctTime'].append(0)
             self.times['dnsTime'].append(0)
             self.times['ttfbTime'].append(0)
@@ -152,7 +104,7 @@ class TestYKB:
         self.times['Timestamp'].append(self.TestYKB_TIME)
         logging.info(self.times)
 
-
+#TODO 去掉查表
     def generate_performance_status(self,df_one,serviceId):
         """ 生成times后，查performance_status信息，生成id为i的新状态保存在列表中最后再存
         df_one,是只有一行的dataframe，这里可以转化为dict改改下面的访问也许性能好些
@@ -228,55 +180,75 @@ class TestYKB:
         for id in self.serviceLists:
             self.generate_performance_status(pd.DataFrame(self.times)[df['serviceId']==id[0]],id[0]) #传入times的df类型比times好操作点
         
-        # print((self.dataframe))
+        print((self.dataframe))
         pd.DataFrame(self.dataframe).to_sql('TB_SERVICE_STATUS',con=engine,if_exists='append', index=False)
 
     
           
 
 def getMainKeyList(): # 是否作为实例函数耦合
-    conn = pymysql.connect(host='127.0.0.1', port=3306, user='root' ,passwd='123456',db='performancedb')
-    sqlGetMainKey = 'select id from TB_SERVICES'
-    df = pd.read_sql(sqlGetMainKey, con=conn)
-    key_list=np.array(df).tolist()
+#itemid列表
     return key_list
 
 
-def process_job(cook):
-#17.14修改完成：遍历一轮且都相同测试时间。
+
+
+def process_job():
+
     print((time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())))
-    def process(servies,datetime):
+    def process2(servies,datetime):
+        print(datetime)
         testykb = TestYKB(servies,datetime)
         testykb.setup()
-        testykb.addCookie(cook)
         testykb.save2mysql()
         print('此次测试的已请求数量:',len(testykb.times['serviceId'])) #应该是852条全跑完了
         testykb.teardown()
 
     start_time_process = time.time()
     record_time = datetime.now()
+    print(len(getMainKeyList()))
     with concurrent.futures.ThreadPoolExecutor() as executor:
-        futures = [executor.submit(process,getMainKeyList()[x*36:x*36+36],record_time) for x in range(24)]
+        futures = [executor.submit(process2,getMainKeyList()[x*36:x*36+36],record_time) for x in range(24)]
         # concurrent.futures.as_completed(futures) # 应该不需要这个就complete了
-    print ("Thread pool execution in " + str(time.time() - start_time_process), "seconds")
+    print ("Process pool execution in " + str(time.time() - start_time_process), "seconds")
     
     # testykb.save2mysql()
+
+
+
+def testjob():
+    # 多线程为什么没有效果呢，仅个get也是。process包含Test对象创建会报错。
+    testykb2 = TestYKB()
+    testykb2.setup()
+    def process():
+        '''因为上面的getperformance没有效果，就一个请求看多线程对比，结果仍没有提升是说明非网络io任务'''
+        testykb2.driver.get("http://www.tieba.com")
+        WebDriverWait(testykb2.driver, 10).until(lambda driver: driver.execute_script('return document.readyState') == 'complete')
+
+    start_time_thread = time.time()
+    with concurrent.futures.ThreadPoolExecutor() as executor:
+        futures = [executor.submit(process()) for item in range(200)]
+        # concurrent.futures.as_completed(futures) # 应该不需要这个就complete了
+    print ("Thread pool execution in " + str(time.time() - start_time_thread), "seconds")
+    start_time_order = time.time()  
+    [process() for id in range(200)]
+    print ("Order execution in " + str(time.time() - start_time_order), "seconds")
+    testykb2.teardown()
+
 
     
 if __name__ == '__main__':
     import sys
-    # testjob()
-    # order_job()
-    # process_job()
-    # 定时执行order_job，并发开启任务（因为单次任务没有并发有时超过十分钟会阻塞下一次任务，这里并发任务可保证每次任务正常开启）
-    # import threading
     import schedule
-    # def run_threaded(job_func):
-    #     job_thread = threading.Thread(target=job_func)
-    #     job_thread.start()
-    # # schedule.every(5).minutes.do(run_threaded,order_job)
-    schedule.every(5).minutes.do(process_job,sys.argv[1])
-    
-    while True:
-        schedule.run_pending()   # 运行所有可以运行的任务
+    #顺序执行一遍
+    testykb = TestYKB(getMainKeyList(),datetime.now())
+    testykb.setup()
+    testykb.save2mysql()
+    print('此次测试的已请求数量:',len(testykb.times['serviceId'])) 
+    testykb.teardown()    
+
+    #定时并发执行
+#    while True:
+#        process_job()
+        #schedule.run_pending()   # 运行所有可以运行的任务
         #time.sleep(1)
