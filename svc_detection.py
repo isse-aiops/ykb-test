@@ -2,8 +2,8 @@
 import json
 import logging
 import pymysql
-from selenium import webdriver
 from selenium.webdriver.support.ui import WebDriverWait
+from msedge.selenium_tools import Edge, EdgeOptions
 
 # 远程数据库配置
 DB_ADDR = "10.236.101.14"
@@ -30,6 +30,13 @@ QUERY_SVC_SQL = """
     limit 0,1000
 """
 
+INSERT_SVC_STATUS = """
+    insert into
+        `t_anomalous_svc_detection`(`id`,`svc_department`,`svc_name`,`svc_status`)
+    values
+        (%s, %s, %s, %d)
+"""
+
 # 日志
 logging.basicConfig(
     level=logging.INFO
@@ -49,15 +56,15 @@ def getMysqlConn():
         port=DB_PORT,
         user=DB_USER,
         passwd=DB_PWD,
-        db=DB_SCHEMA
+        database=DB_SCHEMA
     )
     return conn
 
 def getServiceList():
     """获取所有的服务"""
     svc_list = []
+    db = getMysqlConn()
     try:
-        db = getMysqlConn()
         cursor = db.cursor()
         cursor.execute(QUERY_SVC_SQL)
         svc_data = cursor.fetchall()
@@ -82,7 +89,10 @@ class WebSvcAnalyzer:
         self._setupWebdriver(self.webdriver_path)
 
     def _setupWebdriver(self, webdriver_path):
-        pass
+        options = EdgeOptions()
+        options.use_chromium = True
+        options.add_argument('headless')
+        self.driver = Edge(executable_path=webdriver_path, options=options)
 
     def shutdown(self):
         self.driver.quit()
@@ -101,7 +111,7 @@ class WebSvcAnalyzer:
             idict = json.loads(js) # 字典类型
             
             # 判定服务状态
-            if self.driver.execute_script("return getComputedStyle(document.querySelector(' a.w-cur')).backgroundColor")!='rgb(39, 137, 238)':
+            if self.driver.execute_script("return getComputedStyle(document.querySelector(' a.w-cur')).backgroundColor") == 'rgb(239, 239, 239)':
                 svc_status = SVC_UNAVAILABLE
             elif idict['loadEventEnd']-idict['navigationStart'] >= TIMEOUT_ST:
                 svc_status = SVC_TIMEOUT
@@ -113,16 +123,43 @@ class WebSvcAnalyzer:
     def generateAnomalousSvcData(self, svc_list):
         """生成数据并写入数据库
         """
+        anomolous_svc_list = []
         for svc_item in svc_list:
-            pass
-        # self._writeSvcStatusToDb()
+            svc_status = self.getAnomalousSvcStatus(svc_item['id'])
+            if svc_status < 0:
+                continue
+            svc_item['svc_status'] = svc_status
+            anomolous_svc_list.append(svc_item)
+
+        # 按照插入顺序构造tulpe
+        rows = list()
+        for item in anomolous_svc_list:
+            row = list()
+            row.append(item['id'])
+            row.append(item['svc_department'])
+            row.append(item['svc_name'])
+            row.append(item['svc_status'])
+            rows.append(row)
+        
+        self._writeSvcStatusToDb(tuple(rows))
     
     def _writeSvcStatusToDb(self, data:tuple):
         """写入数据到数据库
         """
+        db = getMysqlConn()
+        try:
+            cursor = db.cursor()
+            cursor.executemany(INSERT_SVC_STATUS, data)
+            db.commit()
+        except pymysql.Error as e:
+            logging.error(e)
+            db.rollback()
+        finally:
+            db.close()
+
 
 if __name__ == "__main__":
-    webdriver_path = "M:\MicrosoftWebDriver.exe"
+    webdriver_path = "./tools/msedgedriver47.exe"
     analyzer = WebSvcAnalyzer(webdriver_path)
     svc_list = getServiceList()
     analyzer.generateAnomalousSvcData(svc_list)
