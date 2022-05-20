@@ -34,7 +34,7 @@ INSERT_SVC_STATUS = """
     insert into
         `t_anomalous_svc_detection`(`id`,`svc_department`,`svc_name`,`svc_status`)
     values
-        (%s, %s, %s, %d)
+        (%s, %s, %s, %s)
 """
 
 # 日志
@@ -103,7 +103,7 @@ class WebSvcAnalyzer:
         svc_status = -1  # 服务状态
 
         try:
-            self.driver.get(SVC_URL.format(svc_id=service_id))
+            self.driver.get(SVC_URL.format(svc_id=service_id))   
             # 显式等待加载完毕，直接sleep也可,否则是load状态就获取timing了
             WebDriverWait(self.driver, 10).until(lambda driver: driver.execute_script('return document.readyState') == 'complete')
             logging.info(self.driver.execute_script('return document.readyState'))
@@ -111,7 +111,8 @@ class WebSvcAnalyzer:
             idict = json.loads(js) # 字典类型
             
             # 判定服务状态
-            if self.driver.execute_script("return getComputedStyle(document.querySelector(' a.w-cur')).backgroundColor") == 'rgb(239, 239, 239)':
+            element = self.driver.find_element_by_link_text("立即办理").get_attribute("style")
+            if "rgb(239, 239, 239)" in element:
                 svc_status = SVC_UNAVAILABLE
             elif idict['loadEventEnd']-idict['navigationStart'] >= TIMEOUT_ST:
                 svc_status = SVC_TIMEOUT
@@ -141,6 +142,9 @@ class WebSvcAnalyzer:
             row.append(item['svc_status'])
             rows.append(row)
         
+        with open("svc.txt", "w") as f:
+            f.writelines(str(rows))
+        logging.info("Write to db.")
         self._writeSvcStatusToDb(tuple(rows))
     
     def _writeSvcStatusToDb(self, data:tuple):
@@ -161,5 +165,6 @@ class WebSvcAnalyzer:
 if __name__ == "__main__":
     webdriver_path = "./tools/msedgedriver47.exe"
     analyzer = WebSvcAnalyzer(webdriver_path)
+    # analyzer.getAnomalousSvcStatus("0020ec0f-3531-43d9-a324-fdc206772abc")
     svc_list = getServiceList()
     analyzer.generateAnomalousSvcData(svc_list)
