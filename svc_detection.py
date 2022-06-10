@@ -94,6 +94,9 @@ class WebSvcAnalyzer:
         options.add_argument('headless')
         self.driver = Edge(executable_path=webdriver_path, options=options)
 
+    def close_window(self):
+        self.driver.close()
+
     def shutdown(self):
         self.driver.quit()
 
@@ -118,6 +121,8 @@ class WebSvcAnalyzer:
                 svc_status = SVC_TIMEOUT
         except:
             svc_status = SVC_ANOMALY
+        # 关闭当前窗口
+        self.close_window()
 
         return svc_status
 
@@ -131,7 +136,7 @@ class WebSvcAnalyzer:
                 continue
             svc_item['svc_status'] = svc_status
             anomolous_svc_list.append(svc_item)
-
+        self.shutdown()
         # 按照插入顺序构造tulpe
         rows = list()
         for item in anomolous_svc_list:
